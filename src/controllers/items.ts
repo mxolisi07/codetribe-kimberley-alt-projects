@@ -1,4 +1,4 @@
-import { Item } from "../models/items"
+import { Item, ItemFields } from "../models/items"
 
 let items: Item[] = []
 
@@ -13,14 +13,14 @@ export const getItemsById = (id: number): Item | undefined => {
     return item;
 }
 
-export const addItem = (name: string, quantity: number, purchasedStatus: boolean ): Item => {
-    const newItem: Item = {id: currentId++, name, quantity, purchasedStatus}
+export const addItem = (data: ItemFields ): Item => {
+    const newItem: Item = {id: currentId++, ...data}
     items.push(newItem)
     return newItem;
 }
 
 export const updateItem = (
-  id: number, updates: Partial<Pick<Item, 'name' | 'quantity' | 'purchasedStatus'>>): Item | undefined => {
+  id: number, updates: Partial<ItemFields>): Item | undefined => {
   const item = getItemsById(id);
   if (!item) return undefined;
 

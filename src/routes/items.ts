@@ -1,5 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'http'
 import { getItems, getItemsById, addItem, updateItem, deleteItem } from '../controllers/items'
+import { ItemFields } from '../models/items'
 
 const sendJson = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { "content-type": "application/json" });
@@ -17,10 +18,52 @@ const readJson = (req: IncomingMessage): Promise<any> =>
         req.on("error", reject);
     });
 
+const validateItemFields = (data: any, requireAll: boolean) => {
+    const errors: string[] = [];
+    const values: Partial<ItemFields> = {};
+    const input = data ?? {};
+
+    const checkText = (field: "name" | "unit" | "category" | "notes", allowEmpty = false) => {
+        const value = input[field];
+        if (value === undefined && !requireAll) return;
+        if (typeof value !== "string" || (!allowEmpty && value.trim() === "")) {
+            errors.push(`${field} must be ${allowEmpty ? "a string" : "a non-empty string"}`);
+            return;
+        }
+        values[field] = value.trim();
+    };
+
+    checkText("name");
+
+    const { quantity, purchasedStatus } = input;
+
+    if (quantity !== undefined || requireAll) {
+        if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0) {
+            errors.push("quantity must be a number greater than 0");
+        } else {
+            values.quantity = quantity;
+        }
+    }
+
+    if (purchasedStatus !== undefined || requireAll) {
+        if (typeof purchasedStatus !== "boolean") {
+            errors.push("purchasedStatus must be true or false");
+        } else {
+            values.purchasedStatus = purchasedStatus;
+        }
+    }
+
+    checkText("unit");
+    checkText("category");
+    checkText("notes", true);
+
+    return { errors, values };
+};
+
 export const itemsRoute = async (req: IncomingMessage, res: ServerResponse) => {
     if (!req.url?.startsWith("/items")) return;
 
-    const path = req.url?.split("?")[0] ?? "";
+    const path = req.url!.split("?")[0] ?? "";
     const parts = path.split("/");
     const idPart = parts[2];
     const hasId = idPart !== undefined && idPart !== "";
@@ -46,7 +89,6 @@ export const itemsRoute = async (req: IncomingMessage, res: ServerResponse) => {
         if (!Number.isInteger(id)) {
             return sendJson(res, 400, { error: "Invalid item Id" });
         }
-
         if (!getItemsById(id)) {
             return sendJson(res, 404, { error: "Item not found" });
         }
@@ -58,40 +100,16 @@ export const itemsRoute = async (req: IncomingMessage, res: ServerResponse) => {
             return sendJson(res, 400, { error: "Invalid JSON payload" });
         }
 
-        const { name, quantity, purchasedStatus } = body ?? {};
-        const errors: string[] = [];
-        const updates: { name?: string; quantity?: number; purchasedStatus?: boolean } = {};
+        const { errors, values } = validateItemFields(body, false);
 
-        if (name !== undefined) {
-            if (typeof name !== "string" || name.trim() === "") {
-                errors.push("name must be a non-empty string");
-            } else {
-                updates.name = name.trim();
-            }
-        }
-        if (quantity !== undefined) {
-            if (typeof quantity !== "number" || quantity <= 0) {
-                errors.push("quantity must be a number greater than 0");
-            } else {
-                updates.quantity = quantity;
-            }
-        }
-        if (purchasedStatus !== undefined) {
-            if (typeof purchasedStatus !== "boolean") {
-                errors.push("purchasedStatus must be true or false");
-            } else {
-                updates.purchasedStatus = purchasedStatus;
-            }
-        }
-
-        if (errors.length === 0 && Object.keys(updates).length === 0) {
-            errors.push("provide at least one of: name, quantity, purchasedStatus");
+        if (errors.length === 0 && Object.keys(values).length === 0) {
+            errors.push("provide at least one of: name, quantity, purchasedStatus, unit, category, notes");
         }
         if (errors.length > 0) {
             return sendJson(res, 400, { error: "Validation failed", details: errors });
         }
 
-        return sendJson(res, 200, updateItem(id, updates));
+        return sendJson(res, 200, updateItem(id, values));
     }
 
     if (req.method === "DELETE" && hasId) {
@@ -99,9 +117,7 @@ export const itemsRoute = async (req: IncomingMessage, res: ServerResponse) => {
         if (!Number.isInteger(id)) {
             return sendJson(res, 400, { error: "Invalid item Id" });
         }
-
-        const deleted = deleteItem(id);
-        if (!deleted) {
+        if (!deleteItem(id)) {
             return sendJson(res, 404, { error: "Item not found" });
         }
 
@@ -110,40 +126,19 @@ export const itemsRoute = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
     if (req.method === "POST") {
-        let body = "";
-        req.on("data", (chunk) => {
-            body += chunk.toString();
-        });
+        let body: any;
+        try {
+            body = await readJson(req);
+        } catch {
+            return sendJson(res, 400, { error: "Invalid JSON payload" });
+        }
 
-        req.on("end", () => {
-            let parsed: any;
-            try {
-                parsed = JSON.parse(body);
-            } catch {
-                return sendJson(res, 400, { error: "Invalid JSON payload" });
-            }
+        const { errors, values } = validateItemFields(body, true);
+        if (errors.length > 0) {
+            return sendJson(res, 400, { error: "Validation failed", details: errors });
+        }
 
-            const { name, quantity, purchasedStatus } = parsed ?? {};
-            const errors: string[] = [];
-
-            if (typeof name !== "string" || name.trim() === "") {
-                errors.push("name is required and must be a non-empty string");
-            }
-            if (typeof quantity !== "number" || quantity <= 0) {
-                errors.push("quantity is required and must be a number greater than 0");
-            }
-            if (typeof purchasedStatus !== "boolean") {
-                errors.push("purchasedStatus is required and must be true or false");
-            }
-
-            if (errors.length > 0) {
-                return sendJson(res, 400, { error: "Validation failed", details: errors });
-            }
-
-            const newItem = addItem(name.trim(), quantity, purchasedStatus);
-            return sendJson(res, 201, newItem);
-        });
-        return;
+        return sendJson(res, 201, addItem(values as ItemFields));
     }
 
     sendJson(res, 405, { error: "Method not allowed on /items" });
