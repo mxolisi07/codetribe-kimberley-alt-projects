@@ -27,8 +27,6 @@ const findItemOrThrow = (id: number) => {
     return item;
 };
 
-// requireAll = true  -> POST (every field must be present)
-// requireAll = false -> PUT  (only validate the fields that were sent)
 const validateItemFields = (data: any, requireAll: boolean) => {
     const errors: string[] = [];
     const values: Partial<ItemFields> = {};
@@ -66,22 +64,18 @@ const validateItemFields = (data: any, requireAll: boolean) => {
 
     checkText("unit");
     checkText("category");
-    checkText("notes", true); // required, but "" is allowed
+    checkText("notes", true);
 
     return { errors, values };
 };
 
-// Returns true if the URL belongs to /items, false if it doesn't.
-// Errors are thrown and handled in server.ts.
 export const itemsRoute = async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
-    // /items/1 -> ["", "items", "1"]
     const parts = ((req.url ?? "").split("?")[0] ?? "").split("/");
     if (parts[1] !== "items" || parts.length > 3) return false;
 
     const hasId = parts[2] !== undefined && parts[2] !== "";
     const method = req.method;
 
-    // ---- /items ----
     if (!hasId) {
         if (method === "GET") {
             sendSuccess(res, 200, getItems());
@@ -100,7 +94,6 @@ export const itemsRoute = async (req: IncomingMessage, res: ServerResponse): Pro
         throw new MethodNotAllowedError("Method not allowed on /items");
     }
 
-    // ---- /items/:id ----
     const id = parseId(parts[2]!);
 
     if (method === "GET") {

@@ -10,15 +10,12 @@ export const sendSuccess = <T>(res: ServerResponse, status: number, data: T) => 
     sendJson(res, status, { success: true, data });
 };
 
-// 204 must not have a body
 export const sendNoContent = (res: ServerResponse) => {
     res.writeHead(204);
     res.end();
 };
 
-// The single place where every error becomes a response
 export const handleError = (res: ServerResponse, err: unknown) => {
-    // A response was already started, so we can't send another one
     if (res.headersSent) {
         res.end();
         return;
@@ -35,7 +32,6 @@ export const handleError = (res: ServerResponse, err: unknown) => {
         return;
     }
 
-    // Anything unexpected: log it, but don't leak internals to the client
     console.error(err);
     sendJson(res, 500, {
         success: false,
